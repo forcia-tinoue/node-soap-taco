@@ -4,6 +4,7 @@ import * as debugBuilder from 'debug';
 import * as _ from 'lodash';
 import { IWsdlBaseOptions } from '../types';
 import { splitQName, TNS_PREFIX } from '../utils';
+import { InputOrOutput } from '.';
 
 const debug = debugBuilder('node-soap');
 
@@ -159,7 +160,7 @@ export class Element {
     throw new Error('Found unexpected element (' + name + ') inside ' + this.nsName);
   }
 
-  public description(definitions?: DefinitionsElement, xmlns?: IXmlNs): any {
+  public description(inputOrOutput:InputOrOutput,definitions?: DefinitionsElement, xmlns?: IXmlNs): any {
     return this.$name || this.name;
   }
 
@@ -194,7 +195,7 @@ export class ElementElement extends Element {
   public $lookupType?: string;
   public $lookupTypes?: any[];
 
-  public description(definitions: DefinitionsElement, xmlns?: IXmlNs) {
+  public description(inputOrOutput:InputOrOutput,definitions: DefinitionsElement, xmlns?: IXmlNs) {
     let element = {};
     let name = this.$name;
 
@@ -225,7 +226,7 @@ export class ElementElement extends Element {
     let type: any = this.$type || this.$ref;
     if (type) {
       type = splitQName(type);
-      const typeStorage = this.$type ? definitions.descriptions.types : definitions.descriptions.elements;
+      const typeStorage = this.$type ? definitions.descriptions[inputOrOutput].types : definitions.descriptions[inputOrOutput].elements;
       const typeName: string = type.name;
       if(typeName in typeStorage){// typeにtypeNameが入ってしまった場合の対応、本来はこのようなことが起きないように対処すべきかもしれない。
         if (this.$ref) {
@@ -253,7 +254,7 @@ export class ElementElement extends Element {
           let elem: any = {};
           typeStorage[typeName] = elem;
 
-          const description = typeElement.description(definitions, xmlns);
+          const description = typeElement.description(inputOrOutput, definitions, xmlns);
           if (typeof description === 'string') {
             elem = description;
           } else {
@@ -290,7 +291,7 @@ export class ElementElement extends Element {
       element[name] = {};
       for (const child of children) {
         if (child instanceof ComplexTypeElement || child instanceof SimpleTypeElement) {
-          element[name] = child.description(definitions, xmlns);
+          element[name] = child.description(inputOrOutput,definitions, xmlns);
         }
       }
     }
@@ -356,10 +357,10 @@ export class SimpleTypeElement extends Element {
     'restriction',
   ]);
 
-  public description(definitions: DefinitionsElement) {
+  public description(inputOrOutput:InputOrOutput,definitions: DefinitionsElement) {
     for (const child of this.children) {
       if (child instanceof RestrictionElement) {
-        return [this.$name, child.description()].filter(Boolean).join('|');
+        return [this.$name, child.description(inputOrOutput)].filter(Boolean).join('|');
       }
     }
     return {};
@@ -375,12 +376,12 @@ export class RestrictionElement extends Element {
   ]);
   public $base: string;
 
-  public description(definitions?: DefinitionsElement, xmlns?: IXmlNs) {
+  public description(inputOrOutput:InputOrOutput,definitions?: DefinitionsElement, xmlns?: IXmlNs) {
     const children = this.children;
     let desc;
     for (let i = 0, child; child = children[i]; i++) {
       if (child instanceof SequenceElement || child instanceof ChoiceElement) {
-        desc = child.description(definitions, xmlns);
+        desc = child.description(inputOrOutput,definitions, xmlns);
         break;
       }
     }
@@ -388,11 +389,11 @@ export class RestrictionElement extends Element {
       const type = splitQName(this.$base);
       const typeName = type.name;
       const ns = xmlns && xmlns[type.prefix] || definitions.xmlns[type.prefix];
-      const schema = definitions.schemas[ns];
+      const schema = definitions.schemas[inputOrOutput][ns];
       const typeElement = schema && (schema.complexTypes[typeName] || schema.types[typeName] || schema.elements[typeName]);
 
       desc.getBase = () => {
-        return typeElement.description(definitions, schema.xmlns);
+        return typeElement.description(inputOrOutput, definitions, schema.xmlns);
       };
       return desc;
     }
@@ -400,7 +401,7 @@ export class RestrictionElement extends Element {
     // then simple element
     const base = this.$base ? this.$base + '|' : '';
     const restrictions = this.children.map((child) => {
-      return child.description();
+      return child.description(inputOrOutput);
     }).join(',');
 
     return [this.$base, restrictions].filter(Boolean).join('|');
@@ -415,11 +416,11 @@ export class ExtensionElement extends Element {
   ]);
   public $base: string;
 
-  public description(definitions: DefinitionsElement, xmlns?: IXmlNs) {
+  public description(inputOrOutput:InputOrOutput,definitions: DefinitionsElement, xmlns?: IXmlNs) {
     let desc = {};
     for (const child of this.children) {
       if (child instanceof SequenceElement || child instanceof ChoiceElement) {
-        desc = child.description(definitions, xmlns);
+        desc = child.description(inputOrOutput,definitions, xmlns);
       }
     }
     if (this.$base) {
@@ -437,7 +438,7 @@ export class ExtensionElement extends Element {
           schema.elements[typeName]
         );
         if (typeElement) {
-          const base = typeElement.description(definitions, schema.xmlns);
+          const base = typeElement.description(inputOrOutput,definitions, schema.xmlns);
           desc = typeof base === 'string' ? base : _.defaults(base, desc);
         }
       }
@@ -453,10 +454,10 @@ export class ChoiceElement extends Element {
     'element',
     'sequence',
   ]);
-  public description(definitions: DefinitionsElement, xmlns: IXmlNs) {
+  public description(inputOrOutput:InputOrOutput,definitions: DefinitionsElement, xmlns: IXmlNs) {
     const choice = {};
     for (const child of this.children) {
-      const description = child.description(definitions, xmlns);
+      const description = child.description(inputOrOutput,definitions, xmlns);
       for (const key in description) {
         choice[key] = description[key];
       }
@@ -481,7 +482,7 @@ export class ComplexTypeElement extends Element {
     'sequence',
     'simpleContent',
   ]);
-  public description(definitions: DefinitionsElement, xmlns: IXmlNs) {
+  public description(inputOrOutput:InputOrOutput,definitions: DefinitionsElement, xmlns: IXmlNs) {
     const children = this.children || [];
     for (const child of children) {
       if (child instanceof ChoiceElement ||
@@ -490,7 +491,7 @@ export class ComplexTypeElement extends Element {
         child instanceof SimpleContentElement ||
         child instanceof ComplexContentElement) {
 
-        return child.description(definitions, xmlns);
+        return child.description(inputOrOutput,definitions, xmlns);
       }
     }
     return {};
@@ -501,10 +502,10 @@ export class ComplexContentElement extends Element {
   public readonly allowedChildren = buildAllowedChildren([
     'extension',
   ]);
-  public description(definitions: DefinitionsElement, xmlns: IXmlNs) {
+  public description(inputOrOutput:InputOrOutput,definitions: DefinitionsElement, xmlns: IXmlNs) {
     for (const child of this.children) {
       if (child instanceof ExtensionElement) {
-        return child.description(definitions, xmlns);
+        return child.description(inputOrOutput,definitions, xmlns);
       }
     }
     return {};
@@ -515,10 +516,10 @@ export class SimpleContentElement extends Element {
   public readonly allowedChildren = buildAllowedChildren([
     'extension',
   ]);
-  public description(definitions: DefinitionsElement, xmlns: IXmlNs) {
+  public description(inputOrOutput:InputOrOutput,definitions: DefinitionsElement, xmlns: IXmlNs) {
     for (const child of this.children) {
       if (child instanceof ExtensionElement) {
-        return child.description(definitions, xmlns);
+        return child.description(inputOrOutput,definitions, xmlns);
       }
     }
     return {};
@@ -532,13 +533,13 @@ export class SequenceElement extends Element {
     'element',
     'sequence',
   ]);
-  public description(definitions: DefinitionsElement, xmlns: IXmlNs) {
+  public description(inputOrOutput,definitions: DefinitionsElement, xmlns: IXmlNs) {
     const sequence = {};
     for (const child of this.children) {
       if (child instanceof AnyElement) {
         continue;
       }
-      const description = child.description(definitions, xmlns);
+      const description = child.description(inputOrOutput,definitions, xmlns);
       for (const key in description) {
         sequence[key] = description[key];
       }
@@ -552,13 +553,13 @@ export class AllElement extends Element {
     'choice',
     'element',
   ]);
-  public description(definitions: DefinitionsElement, xmlns: IXmlNs) {
+  public description(inputOrOutput:InputOrOutput,definitions: DefinitionsElement, xmlns: IXmlNs) {
     const sequence = {};
     for (const child of this.children) {
       if (child instanceof AnyElement) {
         continue;
       }
-      const description = child.description(definitions, xmlns);
+      const description = child.description(inputOrOutput,definitions, xmlns);
       for (const key in description) {
         sequence[key] = description[key];
       }
@@ -575,7 +576,7 @@ export class MessageElement extends Element {
   public element: ElementElement = null;
   public parts = null;
 
-  public postProcess(definitions: DefinitionsElement) {
+  public postProcess(inputOrOutput:InputOrOutput,definitions: DefinitionsElement) {
     let part: any = null;
     const children = this.children || [];
 
@@ -650,12 +651,12 @@ export class MessageElement extends Element {
             const ctype = schema.complexTypes[type.name] || schema.types[type.name] || schema.elements[type.name];
 
             if (ctype) {
-              this.parts = ctype.description(definitions, schema.xmlns);
+              this.parts = ctype.description(inputOrOutput, definitions, schema.xmlns);
             }
           }
         }
       } else {
-        const method = this.element.description(definitions, schema.xmlns);
+        const method = this.element.description(inputOrOutput,definitions, schema.xmlns);
         this.parts = method[nsName.name];
       }
 
@@ -673,7 +674,7 @@ export class MessageElement extends Element {
         const nsName = splitQName(part.$type);
         const ns = definitions.xmlns[nsName.prefix];
         const type = nsName.name;
-        const schemaDefinition = definitions.schemas[ns];
+        const schemaDefinition = definitions.schemas[inputOrOutput][ns];
         if (typeof schemaDefinition !== 'undefined') {
           this.parts[part.$name] = definitions.schemas[ns].types[type] || definitions.schemas[ns].complexTypes[type];
         } else {
@@ -691,9 +692,9 @@ export class MessageElement extends Element {
     this.deleteFixedAttrs();
   }
 
-  public description(definitions: DefinitionsElement) {
+  public description(inputOrOutput:InputOrOutput,definitions: DefinitionsElement) {
     if (this.element) {
-      return this.element && this.element.description(definitions);
+      return this.element && this.element.description(inputOrOutput,definitions);
     }
     const desc = {};
     desc[this.$name] = this.parts;
@@ -868,7 +869,7 @@ export class OperationElement extends Element {
     }
   }
 
-  public postProcess(definitions: DefinitionsElement, tag: string) {
+  public postProcess(inputOrOutput,definitions: DefinitionsElement, tag: string) {
     const children = this.children;
     for (let i = 0, child; child = children[i]; i++) {
       if (child.name !== 'input' && child.name !== 'output') {
@@ -881,7 +882,7 @@ export class OperationElement extends Element {
       }
       const messageName = splitQName(child.$message).name;
       const message = definitions.messages[messageName];
-      message.postProcess(definitions);
+      message.postProcess(inputOrOutput,definitions);
       if (message.element) {
         definitions.messages[message.element.$name] = message;
         this[child.name] = message.element;
@@ -893,9 +894,9 @@ export class OperationElement extends Element {
     this.deleteFixedAttrs();
   }
 
-  public description(definitions: DefinitionsElement) {
-    const inputDesc = this.input ? this.input.description(definitions) : null;
-    const outputDesc = this.output ? this.output.description(definitions) : null;
+  public description(inputOrOutput:InputOrOutput,definitions: DefinitionsElement) {
+    const inputDesc = this.input ? this.input.description(inputOrOutput,definitions) : null;
+    const outputDesc = this.output ? this.output.description(inputOrOutput,definitions) : null;
     return {
       input: inputDesc && inputDesc[Object.keys(inputDesc)[0]],
       output: outputDesc && outputDesc[Object.keys(outputDesc)[0]],
@@ -929,11 +930,11 @@ export class PortTypeElement extends Element {
     this.deleteFixedAttrs();
   }
 
-  public description(definitions: DefinitionsElement) {
+  public description(inputOrOutput:InputOrOutput,definitions: DefinitionsElement) {
     const methods = {};
     for (const name in this.methods) {
       const method = this.methods[name];
-      methods[name] = method.description(definitions);
+      methods[name] = method.description(inputOrOutput,definitions);
     }
     return methods;
   }
@@ -1002,11 +1003,11 @@ export class BindingElement extends Element {
     this.deleteFixedAttrs();
   }
 
-  public description(definitions: DefinitionsElement) {
+  public description(inputOrOutput:InputOrOutput,definitions: DefinitionsElement) {
     const methods = {};
     for (const name in this.methods) {
       const method = this.methods[name];
-      methods[name] = method.description(definitions);
+      methods[name] = method.description(inputOrOutput,definitions);
     }
     return methods;
   }
@@ -1062,11 +1063,11 @@ export class ServiceElement extends Element {
     this.deleteFixedAttrs();
   }
 
-  public description(definitions: DefinitionsElement) {
+  public description(inputOrOutput:InputOrOutput,definitions: DefinitionsElement) {
     const ports = {};
     for (const name in this.ports) {
       const port = this.ports[name];
-      ports[name] = port.binding.description(definitions);
+      ports[name] = port.binding.description(inputOrOutput,definitions);
     }
     return ports;
   }
@@ -1087,18 +1088,26 @@ export class DefinitionsElement extends Element {
   public portTypes: { [name: string]: PortTypeElement } = {};
   public bindings: { [name: string]: BindingElement } = {};
   public services: { [name: string]: ServiceElement } = {};
-  public schemas: { [name: string]: SchemaElement } = {};
+  public schemas: {  [name: string]: SchemaElement } = {};
   public descriptions: {
-    types: {
-      [key: string]: Element;
-    },
-    elements: {
-      [key: string]: Element;
-    },
+    [K in InputOrOutput]: {
+      types: {
+        [key: string]: Element;
+      },
+      elements: {
+        [key: string]: Element;
+      }
+    }
   } = {
+    input: {
       types: {},
-      elements: {},
-    };
+      elements: {}
+    },
+    output: {
+      types: {},
+      elements: {}
+    }
+  };
 
   public init() {
     if (this.name !== 'definitions') { this.unexpected(this.nsName); }
