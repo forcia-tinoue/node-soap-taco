@@ -13,7 +13,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { HttpClient } from './http';
 import { IHeaders, IHttpClient, IMTOMAttachments, IOptions, ISecurity, SoapMethod, SoapMethodAsync } from './types';
 import { findPrefix } from './utils';
-import { WSDL } from './wsdl';
+import { InputOrOutput, WSDL } from './wsdl';
 import { IPort, OperationElement, ServiceElement } from './wsdl/elements';
 
 const debug = debugBuilder('node-soap');
@@ -149,8 +149,8 @@ export class Client extends EventEmitter {
   }
 
   /** description of services, ports and methods as a JavaScript object */
-  public describe(): any {
-    return this.wsdl.describeServices();
+  public describe(inputOrOutput:InputOrOutput): any {
+    return this.wsdl.describeServices(inputOrOutput);
   }
 
   /** use the specified security protocol */
@@ -359,7 +359,7 @@ export class Client extends EventEmitter {
     const parseSync = (body, response) => {
       let obj;
       try {
-        obj = this.wsdl.xmlToObject(body);
+        obj = this.wsdl.xmlToObject(body,"output");
       } catch (error) {
         //  When the output element cannot be looked up in the wsdl and the body is JSON
         //  instead of sending the error, we pass the body in the response.
@@ -526,7 +526,7 @@ export class Client extends EventEmitter {
           const saxStream = this.wsdl.getSaxStream(res.data);
           return finish({ saxStream }, '<stream>', res.data);
         } else {
-          this.wsdl.xmlToObject(res.data, (error, obj) => {
+          this.wsdl.xmlToObject(res.data, "output",(error, obj) => {
             this.lastResponse = res;
             this.lastElapsedTime = Date.now() - startTime;
             this.lastResponseHeaders = res && res.headers;
@@ -564,7 +564,7 @@ export class Client extends EventEmitter {
         this.lastRequestHeaders = err.config && err.config.headers;
         try {
           if (err.response && err.response.data) {
-            this.wsdl.xmlToObject(err.response.data);
+            this.wsdl.xmlToObject(err.response.data,"output");
           }
         } catch (error) {
           err.root = error.root || error;

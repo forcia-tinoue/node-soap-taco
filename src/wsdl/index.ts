@@ -48,6 +48,8 @@ interface IInitializedOptions extends IOptions {
   ignoredNamespaces?: string[];
 }
 
+export type InputOrOutput = "input" | "output";
+
 export class WSDL {
   public ignoredNamespaces = ['tns', 'targetNamespace', 'typedNamespace'];
   public ignoreBaseNameSpaces = false;
@@ -173,11 +175,11 @@ export class WSDL {
     this._processNextInclude(includes, callback);
   }
 
-  public describeServices() {
+  public describeServices(inputOrOutput:InputOrOutput) {
     const services = {};
     for (const name in this.services) {
       const service = this.services[name];
-      services[name] = service.description(this.definitions);
+      services[name] = service.description(inputOrOutput, this.definitions);
     }
     return services;
   }
@@ -193,7 +195,7 @@ export class WSDL {
     return saxStream;
   }
 
-  public xmlToObject(xml, callback?) {
+  public xmlToObject(xml, inputOrOutput:InputOrOutput, callback?) {
     const p: any = typeof callback === 'function' ? {} : sax.parser(true, null);
     let objectName = null;
     const root: any = {};
@@ -274,7 +276,7 @@ export class WSDL {
           }
         }
 
-        topSchema = message.description(this.definitions);
+        topSchema = message.description(inputOrOutput,this.definitions);
         objectName = originalName;
       }
 
@@ -399,7 +401,7 @@ export class WSDL {
 
       if (/<\?xml[\s\S]+\?>/.test(text)) {
         const top = stack[stack.length - 1];
-        const value = this.xmlToObject(text);
+        const value = this.xmlToObject(text,inputOrOutput);
         if (top.object[this.options.attributesKey]) {
           top.object[this.options.valueKey] = value;
         } else {
@@ -1293,8 +1295,14 @@ export class WSDL {
   private _fromXML(xml: string): void {
     this.definitions = this._parse(xml);
     this.definitions.descriptions = {
+      input: {
       types: {},
       elements: {},
+      },
+      output: {
+        types: {},
+        elements: {},
+       }
     };
     this.xml = xml;
   }
